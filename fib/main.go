@@ -3,25 +3,48 @@ package main
 import (
 	"fmt"
 	"os"
+	"time"
 	// "github.com/k0kubun/pp"
+
 	"strconv"
 )
 
 func main() {
 	val, _ := strconv.Atoi(os.Args[1])
-	root := &Call{
+	var root Node
+	root = &Call{
 		Name: "fib",
 		Arg: &IntegerLiteral{
 			Value: val,
 		},
 	}
-	calculator := &Calculator{}
-	result := root.Accept(calculator)
-	fmt.Println(result)
-	// generator := &Generator{}
-	// root.Accept(generator)
-	// pp.Println(instructions)
-	// fmt.Println(execute())
+	//calculator := &Calculator{}
+	//d := lapseTime(func() {
+	//	result := root.Accept(calculator)
+	//	fmt.Println(result)
+	//})
+	//fmt.Printf("time: %f\n", d.Seconds())
+
+	g := &Generator{}
+	functions["fib"].Accept(g)
+	functionCode["fib"] = g.Instructions
+
+	g = &Generator{}
+	root.Accept(g)
+	//for i, ins := range g.Instructions {
+	//	fmt.Println(fmt.Sprintf("%02d: %s", i, ins.ToString()))
+	//}
+	d := lapseTime(func() {
+		result := execute(g.Instructions)
+		fmt.Println(result)
+	})
+	fmt.Printf("time: %f\n", d.Seconds())
+}
+
+func lapseTime(f func()) time.Duration {
+	start := time.Now()
+	f()
+	return time.Now().Sub(start)
 }
 
 var env = map[string]int{}
@@ -81,166 +104,30 @@ var functions = map[string]Node{
 	},
 }
 
-type Body struct {
-	Statement []Node
-}
+var functionCode = map[string][]ByteCode{}
 
-func (n *Body) Accept(v Visitor) int {
-	return v.VisitBody(n)
-}
-
-type If struct {
-	Condition      *BinaryExpression
-	TrueStatement  []Node
-	FalseStatement []Node
-}
-
-func (n *If) Accept(v Visitor) int {
-	return v.VisitIf(n)
-}
-
-type Return struct {
-	Expression Node
-}
-
-func (n *Return) Accept(v Visitor) int {
-	return v.VisitReturn(n)
-}
-
-type Identifier struct {
-	Name string
-}
-
-func (n *Identifier) Accept(v Visitor) int {
-	return v.VisitIdentifier(n)
-}
-
-type IntegerLiteral struct {
-	Value int
-}
-
-func (n *IntegerLiteral) Accept(v Visitor) int {
-	return v.VisitInteger(n)
-}
-
-type BinaryExpression struct {
-	Left  Node
-	Right Node
-	Op    string
-}
-
-func (n *BinaryExpression) Accept(v Visitor) int {
-	return v.VisitBinaryExpression(n)
-}
-
-type Call struct {
-	Name string
-	Arg  Node
-}
-
-func (n *Call) Accept(v Visitor) int {
-	return v.VisitCall(n)
-}
-
-type Visitor interface {
-	VisitBody(*Body) int
-	VisitIf(*If) int
-	VisitIdentifier(*Identifier) int
-	VisitReturn(*Return) int
-	VisitCall(*Call) int
-	VisitInteger(*IntegerLiteral) int
-	VisitBinaryExpression(*BinaryExpression) int
-}
-
-type Node interface {
-	Accept(v Visitor) int
-}
-
-type Calculator struct{}
-
-func (v *Calculator) VisitBody(n *Body) int {
-	var r int
-	for _, stmt := range n.Statement {
-		r = stmt.Accept(v)
-	}
-	return r
-}
-
-func (v *Calculator) VisitIf(n *If) int {
-	var r int
-	if n.Condition.Accept(v) == 1 {
-		for _, stmt := range n.TrueStatement {
-			r = stmt.Accept(v)
-		}
-		return r
-	}
-	for _, stmt := range n.FalseStatement {
-		r = stmt.Accept(v)
-	}
-	return r
-}
-
-func (v *Calculator) VisitIdentifier(n *Identifier) int {
-	return env[n.Name]
-}
-
-func (v *Calculator) VisitReturn(n *Return) int {
-	return n.Expression.Accept(v)
-}
-
-func (v *Calculator) VisitCall(n *Call) int {
-	newEnv := map[string]int{}
-	newEnv["i"] = n.Arg.Accept(v)
-	pre := env
-	env = newEnv
-	value := functions[n.Name].Accept(v)
-	env = pre
-	return value
-}
-
-func (v *Calculator) VisitBinaryExpression(n *BinaryExpression) int {
-	l := n.Left.Accept(v)
-	r := n.Right.Accept(v)
-	switch n.Op {
-	case "+":
-		return l + r
-	case "-":
-		return l - r
-	case "*":
-		return l * r
-	case "/":
-		return l / r
-	case "<":
-		if l < r {
-			return 1
-		}
-	}
-	return 0
-}
-
-func (v *Calculator) VisitInteger(n *IntegerLiteral) int {
-	return n.Value
-}
-
-var instructions = []ByteCode{}
 var varIndex = map[string]int{}
 
-type Generator struct{}
+type Generator struct {
+	Instructions []ByteCode
+}
+
+func (v *Generator) AddInstructions(op int, value int) {
+	v.Instructions = append(v.Instructions, ByteCode{
+		Op:    op,
+		Value: value,
+	})
+}
 
 func (v *Generator) VisitInteger(n *IntegerLiteral) int {
-	instructions = append(instructions, ByteCode{
-		Op:    push,
-		Value: n.Value,
-	})
+	v.AddInstructions(push, n.Value)
 	return 0
 }
 
 func (v *Generator) VisitBinaryExpression(n *BinaryExpression) int {
 	n.Left.Accept(v)
 	n.Right.Accept(v)
-	instructions = append(instructions, ByteCode{
-		Op: opMap[n.Op],
-	})
+	v.AddInstructions(opMap[n.Op], 0)
 	return 0
 }
 
@@ -253,44 +140,37 @@ func (v *Generator) VisitBody(n *Body) int {
 
 func (v *Generator) VisitIf(n *If) int {
 	n.Condition.Accept(v)
-	ifPos := len(instructions)
-	for _, stmt := range n.TrueStatement {
-		stmt.Accept(v)
-	}
-	elsePos := len(instructions)
+	jumpIfIndex := len(v.Instructions)
+	v.AddInstructions(jumpIf, 0)
 	for _, stmt := range n.FalseStatement {
 		stmt.Accept(v)
 	}
-	instructions = append(instructions, ByteCode{
-		Op:     ifOp,
-		Value:  ifPos,
-		Value2: elsePos,
-	})
+	jumpIndex := len(v.Instructions)
+	v.AddInstructions(jump, 0)
+
+	v.Instructions[jumpIfIndex].Value = len(v.Instructions)
+
+	for _, stmt := range n.TrueStatement {
+		stmt.Accept(v)
+	}
+	v.Instructions[jumpIndex].Value = len(v.Instructions)
 	return 0
 }
 
 func (v *Generator) VisitIdentifier(n *Identifier) int {
-	instructions = append(instructions, ByteCode{
-		Op: ident,
-		Value: varIndex[n.Name],
-	})
+	v.AddInstructions(ident, varIndex[n.Name])
 	return 0
 }
 
 func (v *Generator) VisitReturn(n *Return) int {
 	n.Expression.Accept(v)
-	instructions = append(instructions, ByteCode{
-		Op:    ret,
-	})
+	v.AddInstructions(ret, 0)
 	return 0
 }
 
 func (v *Generator) VisitCall(n *Call) int {
 	n.Arg.Accept(v)
-	instructions = append(instructions, ByteCode{
-		Op: call,
-		Value: 0, // TODO: implement
-	})
+	v.AddInstructions(call, 0) // TODO: implement
 	return 0
 }
 
@@ -300,13 +180,43 @@ type ByteCode struct {
 	Value2 int
 }
 
+func (b *ByteCode) ToString() string {
+	op := ""
+	switch b.Op {
+	case push:
+		op = "push"
+	case plus:
+		op = "plus"
+	case minus:
+		op = "minus"
+	case mul:
+		op = "mul"
+	case div:
+		op = "div"
+	case lt:
+		op = "lt"
+	case ret:
+		op = "ret"
+	case call:
+		op = "call"
+	case ident:
+		op = "ident"
+	case jumpIf:
+		op = "jumpIf"
+	case jump:
+		op = "jump"
+	}
+	return fmt.Sprintf("%s %d %d", op, b.Value, b.Value2)
+}
+
 var opMap = map[string]int{
 	"+": plus,
 	"-": minus,
 	"*": mul,
 	"/": div,
+	"<": lt,
 }
-var stack = make([]int, 10)
+var stack = make([]int, 100)
 var sp = 0
 
 const (
@@ -315,14 +225,24 @@ const (
 	minus
 	mul
 	div
+	lt
 	ret
 	call
 	ident
-	ifOp
+	jumpIf
+	jump
 )
 
-func execute() int {
-	for _, code := range instructions {
+func execute(instructions []ByteCode) int {
+	arg := make([]int, 1)
+	if sp > 0 {
+		arg[0] = stack[sp-1]
+	}
+	pc := 0
+	max := len(instructions)
+	for true {
+		code := instructions[pc]
+		// fmt.Printf("%02d %s\n", pc, code.ToString())
 		switch code.Op {
 		case plus:
 			stack[sp-2] += stack[sp-1]
@@ -336,10 +256,53 @@ func execute() int {
 		case div:
 			stack[sp-2] /= stack[sp-1]
 			sp--
+		case lt:
+			if stack[sp-2] < stack[sp-1] {
+				stack[sp-2] = 1
+			} else {
+				stack[sp-2] = 0
+			}
+			sp--
 		case push:
 			stack[sp] = code.Value
 			sp++
+		case ret:
+			sp--
+			// fmt.Printf(">> %d => %d\n", arg[0], stack[sp])
+			stack[sp-1] = stack[sp]
+			return stack[sp-1]
+		case call:
+			execute(functionCode["fib"])
+			// debug()
+		case ident:
+			stack[sp] = arg[0]
+			sp++
+		case jumpIf:
+			condition := stack[sp-1]
+			sp--
+			if condition == 1 {
+				pc = code.Value
+				continue
+			}
+		case jump:
+			pc = code.Value
+			continue
+		}
+		// debug()
+		pc++
+		if pc >= max {
+			break
 		}
 	}
 	return stack[0]
+}
+
+func debug() {
+	for i, s := range stack {
+		if i >= sp {
+			fmt.Println()
+			return
+		}
+		fmt.Printf("%d : ", s)
+	}
 }
