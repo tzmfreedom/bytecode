@@ -4,67 +4,161 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-	"github.com/k0kubun/pp"
 )
 
-package main
+//var root = &BinaryExpression{
+//	Left: &BinaryExpression{
+//		Left: &IntegerLiteral{
+//			Value: 25,
+//		},
+//		Right: &IntegerLiteral{
+//			Value: 5,
+//		},
+//		Op: "/",
+//	},
+//	Right: &BinaryExpression{
+//		Left: &IntegerLiteral{
+//			Value: 4,
+//		},
+//		Right: &IntegerLiteral{
+//			Value: 3,
+//		},
+//		Op: "*",
+//	},
+//	Op: "+",
+//}
 
-import (
-"fmt"
-
-"github.com/k0kubun/pp"
-)
-
-func main() {
-	root := &BinaryExpression{
-		Left: &BinaryExpression{
-			Left: &IntegerLiteral{
-				Value: 10,
-			},
-			Right: &IntegerLiteral{
-				Value: 5,
-			},
-			Op: "/",
+var root = &Call{
+	Name: "plus",
+	Args: []Node{
+		&IntegerLiteral{
+			Value: 120,
 		},
-		Right: &BinaryExpression{
-			Left: &IntegerLiteral{
-				Value: 4,
-			},
-			Right: &IntegerLiteral{
-				Value: 3,
-			},
-			Op: "*",
+		&IntegerLiteral{
+			Value: 23,
 		},
-		Op: "+",
-	}
-	generator := &Generator{}
-	root.Accept(generator)
-	pp.Println(instructions)
+	},
 }
 
-var instructions = []string{}
+var plus = &Body{
+	Statement: []Node{
+		&Return{
+			Expression: &BinaryExpression{
+				Left:  &Identifier{Name: "i"},
+				Right: &Identifier{Name: "j"},
+				Op:    "+",
+			},
+		},
+	},
+}
 
-type Generator struct{}
+func main() {
+	g := &Generator{}
+	root.Accept(g)
+	fmt.Printf(`.intel_syntax noprefix
+.global _main, _plus
+
+_main:
+`)
+	for _, ins := range g.Instructions {
+		fmt.Println("  " + ins)
+	}
+	fmt.Println(`
+  ret`)
+
+	createFunction("plus", plus)
+}
+
+func createFunction(name string, root Node) {
+	g := &Generator{}
+	root.Accept(g)
+	fmt.Printf(`
+_%s:
+  push rbp
+  mov rbp, rsp
+`, name)
+	for _, ins := range g.Instructions {
+		fmt.Println("  " + ins)
+	}
+}
+
+type Generator struct {
+	Instructions []string
+}
+
+func (v *Generator) AddInstruction(src string) {
+	v.Instructions = append(v.Instructions, src)
+}
 
 func (v *Generator) VisitInteger(n *IntegerLiteral) int {
-	instructions = append(instructions, "push %d", n.Value)
+	v.Instructions = append(v.Instructions, fmt.Sprintf("push %d", n.Value))
 	return 0
 }
 
 func (v *Generator) VisitBinaryExpression(n *BinaryExpression) int {
 	n.Left.Accept(v)
 	n.Right.Accept(v)
-	instructions = append(instructions,"pop rdi")
-	instructions = append(instructions,"pop rax")
+	v.AddInstruction("pop rdi")
+	v.AddInstruction("pop rax")
 	if n.Op == "*" {
-		instructions = append(instructions,"mul rdi")
+		v.AddInstruction("mul rdi")
 	} else if n.Op == "/" {
-		instructions = append(instructions,"mov rdx, 0")
-		instructions = append(instructions, "div rdi")
+		v.AddInstruction("mov rdx, 0")
+		v.AddInstruction("div rdi")
 	} else {
-		instructions = append(instructions, fmt.Sprintf("%s rax, rdi", opMap[n.Op]))
+		v.AddInstruction(fmt.Sprintf("%s rax, rdi", opMap[n.Op]))
 	}
-	instructions = append(instructions,"push rax")
+	v.AddInstruction("push rax")
+	return 0
+}
+
+func (v *Generator) VisitBody(n *Body) int {
+	for _, stmt := range n.Statement {
+		stmt.Accept(v)
+	}
+	return 0
+}
+
+func (v *Generator) VisitIf(n *If) int {
+	n.Condition.Accept(v)
+	// jumpIfIndex
+	// v.AddInstruction("jump", varIndex[n.Name])
+	for _, stmt := range n.FalseStatement {
+		stmt.Accept(v)
+	}
+	// jumpIndex
+	// v.AddInstruction("jump", varIndex[n.Name])
+
+	for _, stmt := range n.TrueStatement {
+		stmt.Accept(v)
+	}
+	return 0
+}
+
+func (v *Generator) VisitIdentifier(n *Identifier) int {
+	address := 16
+	if n.Name == "j" {
+		address = 24
+	}
+	v.AddInstruction(fmt.Sprintf("push [rbp+%d]", address))
+	return 0
+}
+
+func (v *Generator) VisitReturn(n *Return) int {
+	n.Expression.Accept(v)
+	v.AddInstruction("pop rax")
+	v.AddInstruction("mov rsp, rbp")
+	v.AddInstruction("pop rbp")
+	v.AddInstruction("ret")
+	return 0
+}
+
+func (v *Generator) VisitCall(n *Call) int {
+	for _, arg := range n.Args {
+		arg.Accept(v)
+	}
+	v.AddInstruction(fmt.Sprintf("call _%s", n.Name))
+	v.AddInstruction(fmt.Sprintf("add rsp, %d", len(n.Args)*8))
 	return 0
 }
 
