@@ -29,24 +29,67 @@ import (
 //}
 
 var root = &Call{
-	Name: "plus",
+	Name: "fib",
 	Args: []Node{
 		&IntegerLiteral{
-			Value: 120,
-		},
-		&IntegerLiteral{
-			Value: 23,
+			Value: 13,
 		},
 	},
 }
 
-var plus = &Body{
+var fib = &Body{
 	Statement: []Node{
-		&Return{
-			Expression: &BinaryExpression{
-				Left:  &Identifier{Name: "i"},
-				Right: &Identifier{Name: "j"},
-				Op:    "+",
+		&If{
+			Condition: &BinaryExpression{
+				Left: &Identifier{
+					Name: "i",
+				},
+				Right: &IntegerLiteral{
+					Value: 2,
+				},
+				Op: "<",
+			},
+			TrueStatement: []Node{
+				&Return{
+					Expression: &Identifier{
+						Name: "i",
+					},
+				},
+			},
+			FalseStatement: []Node{
+				&Return{
+					Expression: &BinaryExpression{
+						Left: &Call{
+							Name: "fib",
+							Args: []Node{
+								&BinaryExpression{
+									Left: &Identifier{
+										Name: "i",
+									},
+									Right: &IntegerLiteral{
+										Value: 1,
+									},
+									Op: "-",
+								},
+							},
+						},
+						Right: &Call{
+							Name: "fib",
+							Args: []Node{
+								&BinaryExpression{
+									Left: &Identifier{
+										Name: "i",
+									},
+									Right: &IntegerLiteral{
+										Value: 2,
+									},
+									Op: "-",
+								},
+							},
+						},
+						Op: "+",
+					},
+				},
 			},
 		},
 	},
@@ -64,9 +107,10 @@ _main:
 		fmt.Println("  " + ins)
 	}
 	fmt.Println(`
+  pop rax
   ret`)
 
-	createFunction("plus", plus)
+	createFunction("fib", fib)
 }
 
 func createFunction(name string, root Node) {
@@ -105,6 +149,10 @@ func (v *Generator) VisitBinaryExpression(n *BinaryExpression) int {
 	} else if n.Op == "/" {
 		v.AddInstruction("mov rdx, 0")
 		v.AddInstruction("div rdi")
+	} else if n.Op == "<" {
+		v.AddInstruction("cmp rax, rdi")
+		v.AddInstruction("jl .fibif")
+		return 0
 	} else {
 		v.AddInstruction(fmt.Sprintf("%s rax, rdi", opMap[n.Op]))
 	}
@@ -121,15 +169,13 @@ func (v *Generator) VisitBody(n *Body) int {
 
 func (v *Generator) VisitIf(n *If) int {
 	n.Condition.Accept(v)
-	// jumpIfIndex
-	// v.AddInstruction("jump", varIndex[n.Name])
-	for _, stmt := range n.FalseStatement {
+	v.AddInstruction("jmp .fibelse")
+	v.AddInstruction(".fibif:")
+	for _, stmt := range n.TrueStatement {
 		stmt.Accept(v)
 	}
-	// jumpIndex
-	// v.AddInstruction("jump", varIndex[n.Name])
-
-	for _, stmt := range n.TrueStatement {
+	v.AddInstruction(".fibelse:")
+	for _, stmt := range n.FalseStatement {
 		stmt.Accept(v)
 	}
 	return 0
@@ -159,6 +205,7 @@ func (v *Generator) VisitCall(n *Call) int {
 	}
 	v.AddInstruction(fmt.Sprintf("call _%s", n.Name))
 	v.AddInstruction(fmt.Sprintf("add rsp, %d", len(n.Args)*8))
+	v.AddInstruction("push rax")
 	return 0
 }
 

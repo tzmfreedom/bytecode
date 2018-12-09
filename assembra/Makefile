@@ -5,7 +5,7 @@ run: hello
 hello: hello.s
 	gcc -o hello hello.s
 
-hello.s: assembra.go
+hello.s: main.go
 	make imports
 	make format
 	go run . 3 > hello.s
