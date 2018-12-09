@@ -6,37 +6,6 @@ import (
 	"strconv"
 )
 
-//var root = &BinaryExpression{
-//	Left: &BinaryExpression{
-//		Left: &IntegerLiteral{
-//			Value: 25,
-//		},
-//		Right: &IntegerLiteral{
-//			Value: 5,
-//		},
-//		Op: "/",
-//	},
-//	Right: &BinaryExpression{
-//		Left: &IntegerLiteral{
-//			Value: 4,
-//		},
-//		Right: &IntegerLiteral{
-//			Value: 3,
-//		},
-//		Op: "*",
-//	},
-//	Op: "+",
-//}
-
-var root = &Call{
-	Name: "fib",
-	Args: []Node{
-		&IntegerLiteral{
-			Value: 13,
-		},
-	},
-}
-
 var fib = &Body{
 	Statement: []Node{
 		&If{
@@ -97,17 +66,36 @@ var fib = &Body{
 
 func main() {
 	g := &Generator{}
+	i, _ := strconv.Atoi(os.Args[1])
+	root := &Call{
+		Name: "fib",
+		Args: []Node{
+			&IntegerLiteral{
+				Value: i,
+			},
+		},
+	}
 	root.Accept(g)
-	fmt.Printf(`.intel_syntax noprefix
-.global _main, _plus
+	fmt.Print(`.intel_syntax noprefix
+.global _main, _fib
+.section	__TEXT,__text
+L_.str:
+  .asciz  "%d\n"
 
 _main:
+  push rbp
+  mov rbp, rsp
 `)
 	for _, ins := range g.Instructions {
 		fmt.Println("  " + ins)
 	}
 	fmt.Println(`
   pop rax
+  mov rsi, rax
+  lea rdi, [rip + L_.str] // message
+  mov rax, 0
+  call _printf
+  pop rbp
   ret`)
 
 	createFunction("fib", fib)
